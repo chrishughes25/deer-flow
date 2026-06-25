@@ -35,6 +35,9 @@ def test_get_available_tools_hides_bash_for_default_local_sandbox(monkeypatch):
 
 
 def test_get_available_tools_keeps_bash_when_explicitly_enabled(monkeypatch):
+    # AlphaFRS fork override: the `bash` tool group is excluded unconditionally
+    # (tools.py _excluded_groups), so bash is never exposed even when host bash is
+    # enabled. ls (file:read) is unaffected. (Upstream keeps bash here.)
     monkeypatch.setattr("deerflow.tools.tools.get_app_config", lambda: _make_config(allow_host_bash=True))
     monkeypatch.setattr(
         "deerflow.tools.tools.resolve_variable",
@@ -43,7 +46,7 @@ def test_get_available_tools_keeps_bash_when_explicitly_enabled(monkeypatch):
 
     names = [tool.name for tool in get_available_tools(include_mcp=False, subagent_enabled=False)]
 
-    assert "bash" in names
+    assert "bash" not in names
     assert "ls" in names
 
 
@@ -66,6 +69,8 @@ def test_get_available_tools_hides_renamed_host_bash_alias(monkeypatch):
 
 
 def test_get_available_tools_keeps_bash_for_aio_sandbox(monkeypatch):
+    # AlphaFRS fork override: bash is excluded for every sandbox provider
+    # (tools.py _excluded_groups). (Upstream keeps bash for the aio sandbox.)
     config = _make_config(
         allow_host_bash=False,
         sandbox_use="deerflow.community.aio_sandbox:AioSandboxProvider",
@@ -78,7 +83,7 @@ def test_get_available_tools_keeps_bash_for_aio_sandbox(monkeypatch):
 
     names = [tool.name for tool in get_available_tools(include_mcp=False, subagent_enabled=False)]
 
-    assert "bash" in names
+    assert "bash" not in names
     assert "ls" in names
 
 
