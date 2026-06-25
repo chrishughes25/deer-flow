@@ -6,13 +6,12 @@ from deerflow.config import get_app_config
 from deerflow.config.app_config import AppConfig
 from deerflow.reflection import resolve_variable
 from deerflow.sandbox.security import is_host_bash_allowed
-from deerflow.tools.builtins import ask_clarification_tool, present_file_tool, task_tool, view_image_tool
+from deerflow.tools.builtins import ask_clarification_tool, task_tool, view_image_tool
 from deerflow.tools.builtins.tool_search import reset_deferred_registry
 
 logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
-    present_file_tool,
     ask_clarification_tool,
 ]
 
@@ -56,7 +55,16 @@ def get_available_tools(
         List of available tools.
     """
     config = app_config or get_app_config()
-    tool_configs = [tool for tool in config.tools if groups is None or tool.group in groups]
+    # AlphaFRS: research reports must be returned INLINE as the agent's final
+    # message — never expose file-write or shell/bash tools. They let a run write
+    # the report to /mnt/user-data/outputs/*.md and "present" it instead of
+    # returning it inline. (present_file is also dropped from BUILTIN_TOOLS above.)
+    _excluded_groups = {"file:write", "bash"}
+    tool_configs = [
+        tool
+        for tool in config.tools
+        if (groups is None or tool.group in groups) and tool.group not in _excluded_groups
+    ]
 
     # Do not expose host bash by default when LocalSandboxProvider is active.
     if not is_host_bash_allowed(config):
