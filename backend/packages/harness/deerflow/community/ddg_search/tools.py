@@ -4,6 +4,7 @@ Web Search Tool - Search the web using DuckDuckGo (no API key required).
 
 import json
 import logging
+import os
 
 from langchain.tools import tool
 
@@ -11,7 +12,16 @@ from deerflow.config import get_app_config
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BACKEND = "auto"
+# AlphaFRS fork: keep web search fast and skip flaky engines. Upstream already
+# remaps the bogus wt-wt → wikipedia host (see _resolve_ddgs_region); on top of
+# that we (a) restrict to dependable engines by default — excluding Mojeek
+# (captcha walls) and Wikipedia (region-sensitive) — and (b) cap the per-request
+# timeout (upstream hardcodes 30s) so one stalled engine can't hang the whole
+# research step. Both are overridable at runtime via DEERFLOW_SEARCH_BACKENDS /
+# DEERFLOW_SEARCH_TIMEOUT (and per-call via config.yaml) so a newly-failing
+# engine can be blacklisted without a redeploy.
+DEFAULT_BACKEND = os.getenv("DEERFLOW_SEARCH_BACKENDS", "duckduckgo, google, bing, brave")
+DEFAULT_TIMEOUT = float(os.getenv("DEERFLOW_SEARCH_TIMEOUT", "5"))
 DEFAULT_REGION = "wt-wt"
 DEFAULT_SAFESEARCH = "moderate"
 DEFAULT_WIKIPEDIA_REGION = "us-en"
@@ -110,7 +120,7 @@ def _search_text(
         logger.error("ddgs library not installed. Run: pip install ddgs")
         return []
 
-    ddgs = DDGS(timeout=30)
+    ddgs = DDGS(timeout=DEFAULT_TIMEOUT)
 
     try:
         backend = _normalize_backend(backend)
