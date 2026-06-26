@@ -60,11 +60,7 @@ def get_available_tools(
     # the report to /mnt/user-data/outputs/*.md and "present" it instead of
     # returning it inline. (present_file is also dropped from BUILTIN_TOOLS above.)
     _excluded_groups = {"file:write", "bash"}
-    tool_configs = [
-        tool
-        for tool in config.tools
-        if (groups is None or tool.group in groups) and tool.group not in _excluded_groups
-    ]
+    tool_configs = [tool for tool in config.tools if (groups is None or tool.group in groups) and tool.group not in _excluded_groups]
 
     # Do not expose host bash by default when LocalSandboxProvider is active.
     if not is_host_bash_allowed(config):
