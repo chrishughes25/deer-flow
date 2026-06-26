@@ -57,7 +57,7 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
 
     def __init__(self, *, enabled: bool = True) -> None:
         self.enabled = enabled
-        
+
     def _stable_message_id(self, tool_call_id: str, formatted_message: str) -> str:
         """Build a deterministic message ID so retried clarification calls replace, not append."""
         if tool_call_id:

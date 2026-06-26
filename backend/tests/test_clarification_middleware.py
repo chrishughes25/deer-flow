@@ -6,23 +6,23 @@ Covers:
 """
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.messages import ToolMessage
-from langgraph.types import Command
 from langgraph.graph.message import add_messages
+from langgraph.types import Command
 
 from deerflow.agents.middlewares.clarification_middleware import (
     _AUTO_RESPONSE,
     ClarificationMiddleware,
 )
-from types import SimpleNamespace
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def middleware():
@@ -46,6 +46,7 @@ def _make_request(tool_name: str = "ask_clarification", question: str = "Which s
 # ---------------------------------------------------------------------------
 # Options type coercion tests
 # ---------------------------------------------------------------------------
+
 
 class TestFormatClarificationMessage:
     """Tests for _format_clarification_message options handling."""
@@ -159,6 +160,7 @@ class TestFormatClarificationMessage:
 # clarification_enabled flag tests
 # ---------------------------------------------------------------------------
 
+
 class TestClarificationMiddlewareEnabled:
     """Tests with clarification_enabled=True (default / interactive mode)."""
 
@@ -261,6 +263,8 @@ class TestClarificationMiddlewareAsync:
         result = asyncio.run(_run())
         assert isinstance(result, ToolMessage)
         assert result.content == _AUTO_RESPONSE
+
+
 class TestClarificationCommandIdempotency:
     """Clarification tool-call retries should not duplicate messages in state."""
 
