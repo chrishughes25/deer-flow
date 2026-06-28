@@ -32,6 +32,22 @@ router = APIRouter(prefix="/api/threads", tags=["runs"])
 REGENERATE_HISTORY_SCAN_LIMIT = 200
 
 
+def _is_trusted_internal_caller(request: Request) -> bool:
+    """True when the request was authenticated with the internal service token.
+
+    Trusted internal callers (e.g. the AlphaFRS poller) read runs across the
+    shared SQL store, which is owner-scoped. Their runs are created without an
+    owner, and with multiple gateway workers a run may live only in another
+    worker's in-memory RunManager — so an owner-scoped store lookup would 404
+    spuriously. Callers use this to read unscoped; thread-level ``owner_check``
+    on the route still gates which threads they may touch.
+    """
+    from app.gateway.internal_auth import INTERNAL_SYSTEM_ROLE
+
+    user = getattr(getattr(request, "state", None), "user", None)
+    return getattr(user, "system_role", None) == INTERNAL_SYSTEM_ROLE
+
+
 def compute_run_durations(runs) -> dict[str, int]:
     """Map run_id -> duration in seconds from run timestamps."""
     from datetime import datetime
@@ -489,8 +505,11 @@ async def list_runs(thread_id: str, request: Request) -> list[RunResponse]:
 async def get_run(thread_id: str, run_id: str, request: Request) -> RunResponse:
     """Get details of a specific run."""
     run_mgr = get_run_manager(request)
-    user_id = await get_current_user(request)
-    record = await run_mgr.get(run_id, user_id=user_id)
+    # Internal callers read unscoped from the shared store so a multi-worker
+    # in-memory cache miss can't 404 a run that exists — see
+    # _is_trusted_internal_caller. Thread access was already gated by owner_check.
+    lookup_user_id = None if _is_trusted_internal_caller(request) else await get_current_user(request)
+    record = await run_mgr.get(run_id, user_id=lookup_user_id)
     if record is None or record.thread_id != thread_id:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return _record_to_response(record)
