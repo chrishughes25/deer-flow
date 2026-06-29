@@ -41,6 +41,79 @@ logger = logging.getLogger(__name__)
 _VALID_LG_MODES = {"values", "updates", "checkpoints", "tasks", "debug", "messages", "custom"}
 
 
+def _is_recursion_error(exc: BaseException) -> bool:
+    """True if *exc* is LangGraph's recursion-limit error.
+
+    The import is guarded so a LangGraph version that relocates the symbol can't
+    break error handling; falls back to a type-name / message check.
+    """
+    try:
+        from langgraph.errors import GraphRecursionError
+
+        if isinstance(exc, GraphRecursionError):
+            return True
+    except Exception:
+        pass
+    return type(exc).__name__ == "GraphRecursionError" or "recursion limit" in str(exc).lower()
+
+
+def _summarize_run_messages(messages: list[Any]) -> dict[str, Any]:
+    """Compact, log-safe summary of a run's message history.
+
+    Used to explain WHY a run failed to converge (e.g. exhausted the recursion
+    limit): message counts, a histogram of tool calls by name, and the trailing
+    tool-call sequence — a single tool invoked over and over is the usual tell of
+    a loop. Accepts LangChain message objects or plain dicts.
+    """
+    from collections import Counter
+
+    tool_counts: Counter[str] = Counter()
+    tool_sequence: list[str] = []
+    ai_messages = 0
+    tool_messages = 0
+
+    for m in messages:
+        if isinstance(m, dict):
+            mtype = m.get("type") or m.get("role") or ""
+            tool_calls = m.get("tool_calls") or []
+        else:
+            mtype = getattr(m, "type", "") or ""
+            tool_calls = getattr(m, "tool_calls", None) or []
+        if mtype in ("ai", "AIMessage", "AIMessageChunk"):
+            ai_messages += 1
+            for tc in tool_calls:
+                name = (tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)) or "?"
+                tool_counts[name] += 1
+                tool_sequence.append(name)
+        elif mtype in ("tool", "ToolMessage"):
+            tool_messages += 1
+
+    return {
+        "total_messages": len(messages),
+        "ai_messages": ai_messages,
+        "tool_messages": tool_messages,
+        "total_tool_calls": sum(tool_counts.values()),
+        "tool_calls_by_name": dict(tool_counts.most_common()),
+        "recent_tool_calls": tool_sequence[-15:],
+    }
+
+
+async def _read_latest_checkpoint_messages(checkpointer: Any, thread_id: str) -> list[Any]:
+    """Best-effort read of the messages in a thread's latest checkpoint."""
+    if checkpointer is None:
+        return []
+    try:
+        cfg = {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
+        ckpt_tuple = await checkpointer.aget_tuple(cfg)
+        if ckpt_tuple is None:
+            return []
+        checkpoint = getattr(ckpt_tuple, "checkpoint", {}) or {}
+        return checkpoint.get("channel_values", {}).get("messages", []) or []
+    except Exception:
+        logger.debug("Could not read checkpoint messages for thread %s", thread_id, exc_info=True)
+        return []
+
+
 def _build_runtime_context(
     thread_id: str,
     run_id: str,
@@ -342,6 +415,27 @@ async def run_agent(
     except Exception as exc:
         error_msg = f"{exc}"
         logger.exception("Run %s failed: %s", run_id, error_msg)
+
+        # A run that exhausts the LangGraph recursion limit yields a bare
+        # "Recursion limit of N reached" error that says nothing about WHY the
+        # agent never converged. Emit a compact trace of the message history so
+        # the loop is diagnosable from logs alone: how many tool calls were made,
+        # which tools dominated, and the trailing call sequence (a repeated tool
+        # name is the tell). Best-effort — tracing must never mask the real error.
+        if _is_recursion_error(exc):
+            try:
+                messages = await _read_latest_checkpoint_messages(checkpointer, thread_id)
+                recursion_limit = config.get("recursion_limit") if isinstance(config, dict) else None
+                logger.error(
+                    "Run %s exhausted the recursion limit (limit=%s) without producing "
+                    "a final answer. Message trace: %s",
+                    run_id,
+                    recursion_limit,
+                    _summarize_run_messages(messages),
+                )
+            except Exception:
+                logger.warning("Run %s: failed to build recursion trace", run_id, exc_info=True)
+
         await run_manager.set_status(run_id, RunStatus.error, error=error_msg)
         await bridge.publish(
             run_id,
