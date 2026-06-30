@@ -15,6 +15,12 @@ BUILTIN_TOOLS = [
     ask_clarification_tool,
 ]
 
+# AlphaFRS: never expose web_fetch. It is a Jina-backed page fetcher that (a) the
+# report prompt already forbids, (b) burns the depletable Jina balance with 402s,
+# and (c) drives agents into fetch/search loops that exhaust the recursion limit.
+# Tavily web_search already returns page content, so web_fetch is unnecessary.
+_EXCLUDED_TOOL_NAMES = {"web_fetch"}
+
 SUBAGENT_TOOLS = [
     task_tool,
     # task_status_tool is no longer exposed to LLM (backend handles polling internally)
@@ -168,6 +174,9 @@ def get_available_tools(
     seen_names: set[str] = set()
     unique_tools: list[BaseTool] = []
     for t in all_tools:
+        if t.name in _EXCLUDED_TOOL_NAMES:
+            logger.info("Excluding tool %r (AlphaFRS policy)", t.name)
+            continue
         if t.name not in seen_names:
             unique_tools.append(t)
             seen_names.add(t.name)
