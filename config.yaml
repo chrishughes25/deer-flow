@@ -771,9 +771,13 @@ summarization:
   # Context retention policy after summarization
   # Specifies how much recent history to preserve
   keep:
-    # Keep the most recent 10 messages (recommended)
+    # Keep the most recent 25 messages — raised from 10 so the agent retains its
+    # research progress after a summarization pass instead of forgetting what it
+    # already found and re-searching. That forget-and-re-search loop is what
+    # exhausts the recursion limit on multi-section stock_analysis runs (the
+    # recursion traces show a web_search-dominated tail that never converges).
     type: messages
-    value: 10
+    value: 25
     # Alternative: Keep specific token count
     # type: tokens
     # value: 3000
