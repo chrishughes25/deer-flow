@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
@@ -59,6 +60,63 @@ def logging_level_from_config(name: str | None) -> int:
     """Map ``config.yaml`` ``log_level`` string to a :mod:`logging` level constant."""
     mapping = logging.getLevelNamesMapping()
     return mapping.get((name or "info").strip().upper(), logging.INFO)
+
+
+def _below_warning(record: logging.LogRecord) -> bool:
+    """Handler filter: pass DEBUG/INFO (routed to stdout)."""
+    return record.levelno < logging.WARNING
+
+
+def _warning_and_above(record: logging.LogRecord) -> bool:
+    """Handler filter: pass WARNING/ERROR/CRITICAL (routed to stderr)."""
+    return record.levelno >= logging.WARNING
+
+
+def configure_root_logging(name: str | None = None) -> None:
+    """Install split-stream handlers on the root logger: DEBUG/INFO → stdout,
+    WARNING and above → stderr.
+
+    Container platforms (Railway, Fly, Heroku, …) classify everything a process
+    writes to **stderr** as an *error*. The stdlib default
+    (:func:`logging.basicConfig`) sends every level to stderr, so ordinary INFO
+    lines — e.g. httpx's ``HTTP Request: POST … 200 OK`` — surface as errors in
+    the platform's log viewer. Splitting the streams keeps genuine
+    warnings/errors on stderr (still flagged) while INFO/DEBUG go to stdout.
+
+    The split is enforced by per-handler *filters*, not handler levels, so
+    :func:`apply_logging_level` (which lowers handler levels to let configured
+    loggers through) cannot accidentally leak INFO onto stderr.
+
+    Idempotent: handlers a previous call installed are removed first, so
+    re-invoking never duplicates lines. Both the gateway (uvicorn) and the
+    LangGraph dev server import ``app.gateway.app`` — the latter via
+    ``langgraph.json``'s auth path pulling in the ``app.gateway`` package
+    ``__init__`` — so one call at that import wires up both processes.
+    """
+    formatter = logging.Formatter(
+        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(formatter)
+    stdout_handler.addFilter(_below_warning)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(formatter)
+    stderr_handler.addFilter(_warning_and_above)
+
+    root = logging.getLogger()
+    # Start from a clean root: drop the stdlib default handler (had basicConfig
+    # run) and any handlers a previous call left behind, so re-runs never
+    # duplicate lines. Third-party libraries attach to their own named loggers,
+    # not root, so this does not silence them.
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        handler.close()
+    root.addHandler(stdout_handler)
+    root.addHandler(stderr_handler)
+    root.setLevel(logging_level_from_config(name))
 
 
 def apply_logging_level(name: str | None) -> None:

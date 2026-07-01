@@ -29,17 +29,17 @@ from app.gateway.routers import (
     uploads,
 )
 from deerflow.config import app_config as deerflow_app_config
-from deerflow.config.app_config import apply_logging_level
+from deerflow.config.app_config import apply_logging_level, configure_root_logging
 
 AppConfig = deerflow_app_config.AppConfig
 get_app_config = deerflow_app_config.get_app_config
 
-# Default logging; lifespan overrides from config.yaml log_level.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Split-stream logging: INFO/DEBUG → stdout, WARNING+ → stderr. Without this the
+# stdlib default sends every level to stderr, and Railway flags every INFO line
+# (e.g. httpx "HTTP Request … 200 OK") as an error. Both the gateway and the
+# LangGraph dev server run this import, so both processes get the split.
+# Lifespan later calls apply_logging_level() to honour config.yaml log_level.
+configure_root_logging()
 
 logger = logging.getLogger(__name__)
 
