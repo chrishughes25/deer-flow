@@ -75,6 +75,7 @@ class RunResponse(BaseModel):
     total_tokens: int | None = None
     llm_call_count: int | None = None
     tool_calls_by_name: dict[str, int] | None = None
+    model_name: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +193,7 @@ async def get_run(thread_id: str, run_id: str, request: Request) -> RunResponse:
             response.total_tokens = row.get("total_tokens")
             response.llm_call_count = row.get("llm_call_count")
             response.tool_calls_by_name = row.get("tool_calls_by_name") or None
+            response.model_name = row.get("model_name")
     except Exception:
         logger.warning("Failed to enrich run %s with usage data", run_id, exc_info=True)
     return response

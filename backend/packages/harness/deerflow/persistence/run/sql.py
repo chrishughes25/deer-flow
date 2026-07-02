@@ -175,6 +175,7 @@ class RunRepository(RunStore):
         total_tokens: int = 0,
         llm_call_count: int = 0,
         tool_calls_by_name: dict[str, int] | None = None,
+        model_name: str | None = None,
         lead_agent_tokens: int = 0,
         subagent_tokens: int = 0,
         middleware_tokens: int = 0,
@@ -197,6 +198,8 @@ class RunRepository(RunStore):
             "message_count": message_count,
             "updated_at": datetime.now(UTC),
         }
+        if model_name is not None:
+            values["model_name"] = model_name
         if last_ai_message is not None:
             values["last_ai_message"] = last_ai_message[:2000]
         if first_human_message is not None:

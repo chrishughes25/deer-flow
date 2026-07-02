@@ -71,6 +71,7 @@ class RunStore(abc.ABC):
         total_tokens: int = 0,
         llm_call_count: int = 0,
         tool_calls_by_name: dict[str, int] | None = None,
+        model_name: str | None = None,
         lead_agent_tokens: int = 0,
         subagent_tokens: int = 0,
         middleware_tokens: int = 0,

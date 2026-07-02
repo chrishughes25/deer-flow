@@ -388,6 +388,17 @@ class TestToolCallCounting:
         )
         assert j.get_completion_data()["tool_calls_by_name"] == {"web_search": 1}
 
+    @pytest.mark.anyio
+    async def test_captures_model_name(self, journal_setup):
+        """model_name (from response_metadata) is reported so external billers
+        can price tokens at the correct per-model rate."""
+        j, _ = journal_setup
+        j.on_llm_end(
+            _make_llm_response("hi", usage={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}),
+            run_id=uuid4(), parent_run_id=None, tags=["lead_agent"],
+        )
+        assert j.get_completion_data()["model_name"] == "test-model"
+
 
 class TestConvenienceFields:
     @pytest.mark.anyio

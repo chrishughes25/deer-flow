@@ -66,6 +66,9 @@ class RunJournal(BaseCallbackHandler):
         # (e.g. {"web_search": 3}). External billers read this from the run
         # record to attribute per-run external-API costs (Tavily etc.).
         self._tool_calls_by_name: dict[str, int] = {}
+        # Model name from LLM response metadata — lets external billers price
+        # tokens at the correct per-model rate (last non-empty seen).
+        self._model_name: str | None = None
 
         # Convenience fields
         self._last_ai_msg: str | None = None
@@ -196,6 +199,11 @@ class RunJournal(BaseCallbackHandler):
             # Token usage from message
             usage = getattr(message, "usage_metadata", None)
             usage_dict = dict(usage) if usage else {}
+
+            # Model name (for per-model cost pricing) — same source as converters.
+            model = (getattr(message, "response_metadata", None) or {}).get("model_name")
+            if model:
+                self._model_name = model
 
             # Resolve call index
             call_index = self._llm_call_index
@@ -389,6 +397,7 @@ class RunJournal(BaseCallbackHandler):
             "total_tokens": self._total_tokens,
             "llm_call_count": self._llm_call_count,
             "tool_calls_by_name": dict(self._tool_calls_by_name),
+            "model_name": self._model_name,
             "message_count": self._msg_count,
             "last_ai_message": self._last_ai_msg,
             "first_human_message": self._first_human_msg,
