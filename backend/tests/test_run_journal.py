@@ -331,6 +331,64 @@ class TestTokenTrackingDisabled:
         assert data["llm_call_count"] == 0
 
 
+class TestToolCallCounting:
+    """Tool invocations are counted by name from AIMessage.tool_calls so external
+    billers can attribute per-run external-API usage (e.g. Tavily web_search)."""
+
+    @pytest.mark.anyio
+    async def test_counts_tool_calls_by_name(self, journal_setup):
+        j, _ = journal_setup
+        usage = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+        j.on_llm_end(
+            _make_llm_response("searching", usage=usage, tool_calls=[
+                {"id": "c1", "name": "web_search", "args": {}},
+                {"id": "c2", "name": "web_search", "args": {}},
+            ]),
+            run_id=uuid4(), parent_run_id=None, tags=["lead_agent"],
+        )
+        j.on_llm_end(
+            _make_llm_response("more", usage=usage, tool_calls=[
+                {"id": "c3", "name": "web_search", "args": {}},
+                {"id": "c4", "name": "bash", "args": {}},
+            ]),
+            run_id=uuid4(), parent_run_id=None, tags=["subagent:research"],
+        )
+        data = j.get_completion_data()
+        assert data["tool_calls_by_name"] == {"web_search": 3, "bash": 1}
+
+    @pytest.mark.anyio
+    async def test_no_tool_calls_yields_empty_dict(self, journal_setup):
+        j, _ = journal_setup
+        j.on_llm_end(
+            _make_llm_response("plain answer", usage={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}),
+            run_id=uuid4(), parent_run_id=None, tags=["lead_agent"],
+        )
+        assert j.get_completion_data()["tool_calls_by_name"] == {}
+
+    @pytest.mark.anyio
+    async def test_disabled_tracking_skips_tool_counts(self):
+        store = MemoryRunEventStore()
+        j = RunJournal("r1", "t1", store, track_token_usage=False, flush_threshold=100)
+        j.on_llm_end(
+            _make_llm_response("X", usage={"input_tokens": 5, "output_tokens": 5, "total_tokens": 10},
+                               tool_calls=[{"id": "c1", "name": "web_search", "args": {}}]),
+            run_id=uuid4(), parent_run_id=None, tags=["lead_agent"],
+        )
+        assert j.get_completion_data()["tool_calls_by_name"] == {}
+
+    @pytest.mark.anyio
+    async def test_counts_even_without_usage_metadata(self, journal_setup):
+        """Providers that omit usage_metadata still get tool calls counted —
+        tool accounting must not depend on token accounting succeeding."""
+        j, _ = journal_setup
+        j.on_llm_end(
+            _make_llm_response("searching", usage=None,
+                               tool_calls=[{"id": "c1", "name": "web_search", "args": {}}]),
+            run_id=uuid4(), parent_run_id=None, tags=["lead_agent"],
+        )
+        assert j.get_completion_data()["tool_calls_by_name"] == {"web_search": 1}
+
+
 class TestConvenienceFields:
     @pytest.mark.anyio
     async def test_first_human_message_via_set(self, journal_setup):

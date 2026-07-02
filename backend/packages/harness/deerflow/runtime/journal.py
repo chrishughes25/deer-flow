@@ -62,6 +62,10 @@ class RunJournal(BaseCallbackHandler):
         self._total_output_tokens = 0
         self._total_tokens = 0
         self._llm_call_count = 0
+        # Tool invocations requested by the model, counted by tool name
+        # (e.g. {"web_search": 3}). External billers read this from the run
+        # record to attribute per-run external-API costs (Tavily etc.).
+        self._tool_calls_by_name: dict[str, int] = {}
 
         # Convenience fields
         self._last_ai_msg: str | None = None
@@ -227,6 +231,14 @@ class RunJournal(BaseCallbackHandler):
                     self._total_tokens += total_tk
                     self._llm_call_count += 1
 
+                # Tool-call accounting: every tool invocation the model requests
+                # appears in AIMessage.tool_calls, so counting here covers all
+                # tools (Tavily web_search, MCP, bash, …) with no extra hooks.
+                for tc in getattr(message, "tool_calls", None) or []:
+                    name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                    if name:
+                        self._tool_calls_by_name[name] = self._tool_calls_by_name.get(name, 0) + 1
+
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
         self._llm_start_times.pop(str(run_id), None)
         self._put(event_type="llm.error", category="trace", content=str(error))
@@ -376,6 +388,7 @@ class RunJournal(BaseCallbackHandler):
             "total_output_tokens": self._total_output_tokens,
             "total_tokens": self._total_tokens,
             "llm_call_count": self._llm_call_count,
+            "tool_calls_by_name": dict(self._tool_calls_by_name),
             "message_count": self._msg_count,
             "last_ai_message": self._last_ai_msg,
             "first_human_message": self._first_human_msg,

@@ -66,6 +66,15 @@ class RunResponse(BaseModel):
     multitask_strategy: str = "reject"
     created_at: str = ""
     updated_at: str = ""
+    # Usage accounting — persisted to the RunStore by RunJournal at completion
+    # (see update_run_completion), so populated only for finished runs. External
+    # billers poll GET /threads/{t}/runs/{r} and read these to attribute per-run
+    # LLM token + external-tool costs.
+    total_input_tokens: int | None = None
+    total_output_tokens: int | None = None
+    total_tokens: int | None = None
+    llm_call_count: int | None = None
+    tool_calls_by_name: dict[str, int] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +180,21 @@ async def get_run(thread_id: str, run_id: str, request: Request) -> RunResponse:
     record = run_mgr.get(run_id)
     if record is None or record.thread_id != thread_id:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return _record_to_response(record)
+    response = _record_to_response(record)
+
+    # Usage lives in the RunStore (written at completion), not the in-memory
+    # record — enrich best-effort so a store hiccup never breaks status polling.
+    try:
+        row = await get_run_store(request).get(run_id)
+        if row:
+            response.total_input_tokens = row.get("total_input_tokens")
+            response.total_output_tokens = row.get("total_output_tokens")
+            response.total_tokens = row.get("total_tokens")
+            response.llm_call_count = row.get("llm_call_count")
+            response.tool_calls_by_name = row.get("tool_calls_by_name") or None
+    except Exception:
+        logger.warning("Failed to enrich run %s with usage data", run_id, exc_info=True)
+    return response
 
 
 @router.post("/{thread_id}/runs/{run_id}/cancel")

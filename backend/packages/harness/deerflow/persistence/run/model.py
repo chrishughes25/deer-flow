@@ -39,6 +39,9 @@ class RunRow(Base):
     lead_agent_tokens: Mapped[int] = mapped_column(default=0)
     subagent_tokens: Mapped[int] = mapped_column(default=0)
     middleware_tokens: Mapped[int] = mapped_column(default=0)
+    # Tool invocations by name ({"web_search": 3, ...}) — lets external billers
+    # attribute per-run external-API usage (Tavily etc.) without event parsing
+    tool_calls_by_name: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Follow-up association
     follow_up_to_run_id: Mapped[str | None] = mapped_column(String(64))
